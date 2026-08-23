@@ -1,3 +1,7 @@
+using InfiniteCoffee2.Data;
+using InfiniteCoffee2.Middleware;
+using InfiniteCoffee2.Services;
+
 namespace InfiniteCoffee2
 {
     public class Program
@@ -6,7 +10,26 @@ namespace InfiniteCoffee2
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            Banco.Configurar(
+                Environment.GetEnvironmentVariable("PADARIA_CONNECTION_STRING") ??
+                builder.Configuration.GetConnectionString("DefaultConnection"));
+
             builder.Services.AddControllersWithViews();
+            builder.Services.AddHostedService<GoogleDriveSnapshotHostedService>();
+            builder.Services.AddCors(options =>
+            {
+                // Em desenvolvimento o app Flutter (Windows, mobile ou web) conversa com esta API.
+                // Libera localhost, 127.0.0.1 e a faixa de IP de rede local (192.168./10.).
+                options.AddPolicy("FlutterDevelopment", policy => policy
+                    .SetIsOriginAllowed(origin =>
+                        origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase) ||
+                        origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase) ||
+                        origin.Contains("192.168.") ||
+                        origin.Contains("10.0.") ||
+                        origin.Contains("10.0.2.2"))
+                    .AllowAnyHeader()
+                    .AllowAnyMethod());
+            });
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(options =>
             {
@@ -28,6 +51,10 @@ namespace InfiniteCoffee2
 
             var app = builder.Build();
 
+            // A estrutura de sync e criada na primeira operacao de banco. Isso permite
+            // que o servidor suba em CI/desenvolvimento mesmo sem SQL Server disponivel;
+            // a inicializacao continua idempotente quando a API realmente e usada.
+
             if (!app.Environment.IsDevelopment())
             {
                 app.UseExceptionHandler("/Home/Error");
@@ -37,6 +64,8 @@ namespace InfiniteCoffee2
             app.UseHttpsRedirection();
             app.UseStaticFiles();
             app.UseRouting();
+            app.UseMiddleware<ApiKeyMiddleware>();
+            app.UseCors("FlutterDevelopment");
 
             // Swagger fica disponível para o grupo testar as APIs durante o desenvolvimento.
             app.UseSwagger();
